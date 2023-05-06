@@ -36,8 +36,6 @@ CREATE TABLE Empleados (
 );
 
 
-INSERT INTO Empleados (Nombres, Apellidos, Fecha_Nacimiento, Correo, Telefono, Direccion, Numero_DPI, id_Puesto, Fecha_Inicio, Id_Restaurante) 
-VALUES ('Juan', 'Perez', TO_DATE('1990-01-01', 'YYYY-MM-DD'), 'juan.perez@example.com', 1234567, '4ta Calle 10-10 Zona 1', 12345678901234, 1, TO_DATE('2022-01-01', 'YYYY-MM-DD'), 1);
 
 
 CREATE TABLE Cliente (
@@ -69,6 +67,7 @@ CREATE TABLE Orden (
   numero_dpi NUMBER,
   id_direccion NUMBER,
   id_restaurante NUMBER,
+  id_empleado VARCHAR2(8),
   canal CHAR(1) CONSTRAINT chk_canal CHECK (canal IN ('L', 'A')),
   estado VARCHAR2(50) DEFAULT 'iniciada',
   forma_pago CHAR(1) CONSTRAINT chk_forma_pago CHECK (forma_pago IN ('E', 'T')),
@@ -76,11 +75,12 @@ CREATE TABLE Orden (
   fecha_final DATE,
   CONSTRAINT fk_orden_cliente FOREIGN KEY (numero_dpi) REFERENCES Cliente(numero_DPI),
   CONSTRAINT fk_orden_direccion FOREIGN KEY (id_direccion) REFERENCES Direccion(id_direccion),
-  CONSTRAINT fk_orden_restaurante FOREIGN KEY (id_restaurante) REFERENCES Restaurante(id_restaurante)
+  CONSTRAINT fk_orden_restaurante FOREIGN KEY (id_restaurante) REFERENCES Restaurante(id_restaurante),
+  CONSTRAINT fk_orden_empleado FOREIGN KEY (id_empleado) REFERENCES Empleados(id_empleado)
 );
 
 
-ALTER TABLE Orden ADD CONSTRAINT uk_orden_direccion UNIQUE (id_direccion);
+--ALTER TABLE Orden ADD CONSTRAINT uk_orden_direccion UNIQUE (id_direccion);
 
 CREATE TABLE Items (
   id_item NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -98,8 +98,49 @@ CREATE TABLE Items (
   )
 );
 
+CREATE TABLE Factura (
+  id_factura NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  numero_serie VARCHAR2(20),
+  monto_total NUMBER(10,2),
+  lugar VARCHAR2(100),
+  fecha_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  Municipio VARCHAR2(100),
+  id_orden NUMBER NOT NULL,
+  nit_cliente VARCHAR2(20) CONSTRAINT chk_nit__cliente CHECK (nit_cliente IN ('C/F') OR REGEXP_LIKE(nit_cliente, '^[0-9]{8}-[0-9]$')),
+  forma_pago CHAR(1) CONSTRAINT chk_forma__pago CHECK (forma_pago IN ('E', 'T')),
+  FOREIGN KEY (id_orden) REFERENCES Orden(id_orden)
+);
+
+
+--crear menu
+CREATE GLOBAL TEMPORARY TABLE menu (
+  id_producto VARCHAR2(2),
+  producto VARCHAR2(50),
+  precio NUMBER(6,2)
+)
+ON COMMIT PRESERVE ROWS; -- la opcion ON COMMIT PRESERVE ROWS indica que los datos no se borran al hacer commit
+
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C1', 'Cheeseburger', 41.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C2', 'Chicken Sandwinch', 32.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C3', 'BBQ Ribs', 54.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C4', 'Pasta Alfredo', 47.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C5', 'Pizza Espinator', 85.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('C6', 'Buffalo Wings', 36.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('E1', 'Papas fritas', 15.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('E2', 'Aros de cebolla', 17.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('E3', 'Coleslaw', 12.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('B1', 'Coca-Cola', 12.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('B2', 'Fanta', 12.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('B3', 'Sprite', 12.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('B4', 'Té frío', 12.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('B5', 'Cerveza de barril', 18.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('P1', 'Copa de helado', 13.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('P2', 'Cheesecake', 15.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('P3', 'Cupcake de chocolate', 8.00);
+INSERT INTO menu (id_producto, producto, precio) VALUES ('P4', 'Flan', 10.00);
 
 --eliminar tablas
+drop table factura;
 drop table items;
 drop table orden;
 drop table direccion;
@@ -109,6 +150,9 @@ drop table puesto;
 drop table restaurante;
 
 
+
+
+delete from orden;
 
 
 
@@ -232,7 +276,7 @@ END;
 /
 
 BEGIN
-    insertar_direccion(1234567890123, '2a Avenida 10-35 Zona 15', 'Ciudad de Guatemala', 5);
+    insertar_direccion(1234567890123, '5ta. Calle 10-20 Zona 1', 'Guatemala', 1);
 END;
 
 -- registrar orden con validaciones
@@ -240,9 +284,7 @@ END;
 CREATE OR REPLACE PROCEDURE insertar_orden(
     p_numero_dpi IN NUMBER,
     p_id_direccion IN NUMBER,
-    p_canal IN CHAR,
-    p_forma_pago IN CHAR,
-    p_fecha_final IN DATE
+    p_canal IN CHAR
 ) AS
     v_id_restaurante NUMBER;
     v_municipio VARCHAR2(50);
@@ -256,86 +298,146 @@ BEGIN
 
     -- Si no se encontró un restaurante, establecer el estado a "SIN COBERTURA"
     IF v_id_restaurante IS NULL THEN
-        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal, estado, forma_pago, fecha_inicio, fecha_final)
-        VALUES(p_numero_dpi, p_id_direccion, NULL, p_canal, 'SIN COBERTURA', p_forma_pago, SYSDATE, SYSDATE);
+        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal, estado)
+        VALUES(p_numero_dpi, p_id_direccion, NULL, p_canal, 'SIN COBERTURA');
     ELSE
-        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal, forma_pago, fecha_inicio, fecha_final)
-        VALUES(p_numero_dpi, p_id_direccion, v_id_restaurante, p_canal, p_forma_pago, SYSDATE, p_fecha_final);
+        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal)
+        VALUES(p_numero_dpi, p_id_direccion, v_id_restaurante, p_canal);
     END IF;
 EXCEPTION
     WHEN NO_DATA_FOUND THEN
-        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal, estado, forma_pago, fecha_inicio, fecha_final)
-        VALUES(p_numero_dpi, p_id_direccion, NULL, p_canal, 'SIN COBERTURA', p_forma_pago, SYSDATE, SYSDATE);
+        INSERT INTO Orden(numero_dpi, id_direccion, id_restaurante, canal, estado)
+        VALUES(p_numero_dpi, p_id_direccion, NULL, p_canal, 'SIN COBERTURA');
 END;
 
 
 
 
 BEGIN
-  insertar_orden(1234567890123, 1, 'A', 'T', NULL);
+  insertar_orden(1234567890123, 1, 'A');
 END;
 
 
+--agregar item
 
---VALIDAR COBERTURA 
-CREATE OR REPLACE PROCEDURE ValidarCoberturaOrden (
-    p_idorden IN NUMBER,
-    p_municipio IN VARCHAR2,
-    p_zona IN VARCHAR2,
-    o_error OUT VARCHAR2
+CREATE OR REPLACE PROCEDURE insertar_item (
+    p_Id_Orden IN Items.Id_Orden%TYPE,
+    p_Tipo_producto IN Items.Tipo_producto%TYPE,
+    p_Producto IN Items.Producto%TYPE,
+    p_Cantidad IN Items.Cantidad%TYPE,
+    p_Observacion IN Items.Observacion%TYPE
+) AS
+  v_Estado Orden.Estado%TYPE;
+BEGIN
+  -- Obtener el estado actual de la orden
+  SELECT Estado INTO v_Estado
+  FROM Orden
+  WHERE Id_Orden = p_Id_Orden;
+
+  -- Verificar que el estado de la orden sea "iniciada"
+  IF v_Estado != 'iniciada' THEN
+    DBMS_OUTPUT.PUT_LINE('No se pueden agregar items a una orden que no está en estado "iniciada".');
+  ELSE
+    -- Insertar el nuevo item
+    INSERT INTO Items (Id_Orden, Tipo_producto, Producto, Cantidad, Observacion)
+    VALUES (p_Id_Orden, p_Tipo_producto, p_Producto, p_Cantidad, p_Observacion);
+    
+    -- Actualizar el estado de la orden a "agregando"
+    UPDATE Orden SET Estado = 'agregando' WHERE Id_Orden = p_Id_Orden;
+    
+    DBMS_OUTPUT.PUT_LINE('Item agregado correctamente.');
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error al agregar el item: ' || SQLERRM);
+END;
+
+BEGIN
+  insertar_item(1, 'C', 6, 3, NULL);
+END;
+
+--confirmar_orden
+
+CREATE OR REPLACE PROCEDURE confirmar_orden (
+  id_orden2 IN NUMBER, 
+  forma_pago2 IN CHAR,
+  id_empleado IN NUMBER
+  
 ) IS
-    v_idrestaurante NUMBER;
-BEGIN
-    -- Validar si existe un restaurante en la misma zona y municipio que la dirección del cliente
-    SELECT idrestaurante INTO v_idrestaurante
-    FROM Restaurantes
-    WHERE municipio = p_municipio AND zona = p_zona;
-    
-    -- Si se encontró un restaurante, actualizar el estado de la orden a "PENDIENTE"
-    UPDATE Ordenes
-    SET estado = 'PENDIENTE', idrestaurante = v_idrestaurante
-    WHERE idorden = p_idorden;
-    
-    -- Si no se encontró un restaurante, actualizar el estado de la orden a "SIN COBERTURA"
-    IF v_idrestaurante IS NULL THEN
-        UPDATE Ordenes
-        SET estado = 'SIN COBERTURA'
-        WHERE idorden = p_idorden;
-        o_error := 'No hay cobertura en el área de entrega.';
-    ELSE
-        o_error := NULL;
-    END IF;
-END;
-
-
---FACTURA
-CREATE OR REPLACE FUNCTION generar_encabezado_factura(
-  p_id_orden IN NUMBER,
-  p_monto_total IN NUMBER,
-  p_lugar IN VARCHAR2,
-  p_nit_cliente IN VARCHAR2,
-  p_forma_pago IN CHAR
-) RETURN VARCHAR2
-AS
-  v_numero_serie VARCHAR2(20);
+  -- Variables para la factura
+  v_anno NUMBER;
+  v_numero_serie VARCHAR2(50);
+  v_monto_total NUMBER(10,2);
+  v_municipio VARCHAR2(100);
   v_fecha_actual DATE;
+  v_id_cliente NUMBER;
+  v_nit_cliente VARCHAR2(20);
+  v_forma_pago CHAR(1);
+  -- Variables para la orden
+  v_estado_anterior VARCHAR2(50);
 BEGIN
-  -- Generar número de serie concatenando año en curso e id de la orden
-  SELECT TO_CHAR(SYSDATE, 'YYYY') || p_id_orden INTO v_numero_serie FROM DUAL;
+  -- Obtener la información de la orden
+  SELECT estado, numero_dpi, id_direccion, forma_pago
+  INTO v_estado_anterior, v_id_cliente, v_municipio, v_forma_pago
+  FROM orden
+  WHERE id_orden = id_orden2;
 
-  -- Obtener fecha y hora actual
+  -- Verificar que la orden esté en estado "iniciada"
+  IF v_estado_anterior <> 'agregando' THEN
+    RAISE_APPLICATION_ERROR(-20001, 'La orden no está en estado agregando');
+  END IF;
+
+  -- Actualizar el estado y forma de pago de la orden
+  UPDATE orden
+  SET estado = 'EN CAMINO', id_empleado = id_empleado
+  WHERE id_orden = id_orden2;
+  
+  UPDATE orden SET forma_pago = forma_pago2 WHERE id_orden = id_orden2;
+
+  -- Generar el número de serie de la factura
+  SELECT EXTRACT(YEAR FROM SYSDATE) INTO v_anno FROM DUAL;
+  v_numero_serie := v_anno || '-' || id_orden2;
+
+  -- Calcular el monto total de la factura
+  SELECT SUM(m.precio * i.cantidad) INTO v_monto_total
+  FROM items i
+  JOIN menu m ON CONCAT(i.tipo_producto, i.producto) = m.id_producto
+  WHERE i.id_orden = id_orden2;
+  v_monto_total := v_monto_total * 1.12; -- Sumar el IVA 12%
+
+  -- Obtener el NIT del cliente (si tiene)
+  SELECT nit INTO v_nit_cliente FROM cliente WHERE numero_dpi = v_id_cliente;
+  IF v_nit_cliente IS NULL THEN
+    v_nit_cliente := 'C/F';
+  END IF;
+
+  -- Obtener la fecha y hora actual
   v_fecha_actual := SYSDATE;
+    
+  -- Insertar el encabezado de la factura
+  INSERT INTO factura (numero_serie, monto_total, municipio, fecha_hora, id_orden, nit_cliente, forma_pago)
+  VALUES (v_numero_serie, v_monto_total, v_municipio, v_fecha_actual, id_orden2, v_nit_cliente, forma_pago2);
+    
+ SELECT numero_serie INTO v_numero_serie FROM factura WHERE id_orden = id_orden2;
+ DBMS_OUTPUT.PUT_LINE('Número de serie: ' || v_numero_serie);   
+    
+  COMMIT;
 
-  -- Construir encabezado de factura
-  RETURN 'Número de serie: ' || v_numero_serie || CHR(10) ||
-         'Monto total: Q' || TO_CHAR(p_monto_total, '999,999,990.00') || CHR(10) ||
-         'Lugar: ' || p_lugar || CHR(10) ||
-         'Fecha y hora: ' || TO_CHAR(v_fecha_actual, 'DD/MM/YYYY HH24:MI:SS') || CHR(10) ||
-         'Id de la orden: ' || p_id_orden || CHR(10) ||
-         'NIT del cliente: ' || COALESCE(p_nit_cliente, 'C/F') || CHR(10) ||
-         'Forma de pago: ' || CASE p_forma_pago WHEN 'E' THEN 'Efectivo' ELSE 'Tarjeta de débito o crédito' END;
+   
+  
+
+END confirmar_orden;
+
+
+BEGIN
+  confirmar_orden(1,'E',00000022);
 END;
-/
+
+SET SERVEROUTPUT ON;
+
+
+
+
 
 
 
